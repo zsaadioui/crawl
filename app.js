@@ -94,6 +94,9 @@ const stopWords = [
   "with",
 ];
 
+const excludedExtensions =
+  /\.(js|css|png|jpe?g|gif|wmv|mp3|mp4|wav|pdf|docx?|xls|zip|rar|exe|dll|bin|pptx?|potx?|wmf|rtf|webp|webm)$/i;
+
 const extractTextFromHTML = (html, url) => {
   const $ = cheerio.load(html);
   const baseUrl = new URL(url).origin;
