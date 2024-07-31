@@ -22,6 +22,9 @@ const app = express();
 // Use request-based logger for log correlation
 app.use(pinoHttp);
 
+// Add this line to parse JSON request bodies
+app.use(express.json());
+
 const noiseWords = [
   "a",
   "an",
