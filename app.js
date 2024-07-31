@@ -106,15 +106,18 @@ const extractTextFromHTML = (html, url) => {
   // Extract text content from the body and trim leading/trailing whitespace
   const text = $("body").text().trim();
 
+  // Replace multiple spaces and newlines with a single space
+  let cleanedText = text.replace(/\s\s+/g, " ").replace(/\n/g, " ").trim();
+
   // Combine both noiseWords and stopWords into one set for efficient lookup
   const combinedWords = new Set([...noiseWords, ...stopWords]);
 
   // Split text into words and filter out combined noise and stop words
-  const words = text.split(" ");
+  const words = cleanedText.split(" ");
   const filteredWords = words.filter(
     (word) => !combinedWords.has(word.toLowerCase())
   );
-  const cleanedText = filteredWords.join(" ");
+  cleanedText = filteredWords.join(" ");
 
   // Extract meta tags
   const metaDescription = $("meta[name='description']").attr("content") || "";
@@ -131,10 +134,9 @@ const extractTextFromHTML = (html, url) => {
         const parsedUrl = new URL(href, url); // Use base URL context
         if (
           parsedUrl.origin === baseUrl &&
-          !/(jpg|jpeg|png|gif|bmp|pdf|doc|docx|xls|xlsx|ppt|pptx|zip|rar|7z|tar|gz)$/i.test(
-            parsedUrl.pathname
-          )
+          !excludedExtensions.test(parsedUrl.pathname)
         ) {
+          // Check if it belongs to the same origin and does not match excluded extensions
           urls.push(parsedUrl.href);
         }
       } catch (e) {
@@ -145,6 +147,7 @@ const extractTextFromHTML = (html, url) => {
 
   // Returning all the gathered data
   return {
+    html: html,
     text: cleanedText,
     metaDescription,
     metaTitle,
