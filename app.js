@@ -153,7 +153,7 @@ const extractTextFromHTML = (html, url) => {
 };
 
 // Example endpoint
-app.get("/", async (req, res) => {
+app.post("/", async (req, res) => {
   const { url } = req.body;
 
   if (!url) {
