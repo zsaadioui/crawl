@@ -99,7 +99,9 @@ const excludedExtensions =
 
 const extractTextFromHTML = (html, url) => {
   logger.info(`Starting text extraction from HTML for URL: ${url}`);
+  console.log("4444444 ", performance.now());
   const $ = cheerio.load(html);
+  console.log("555555 ", performance.now());
   const baseUrl = new URL(url).origin;
 
   // Remove style, script, and other non-content elements
@@ -182,10 +184,12 @@ app.post("/", async (req, res) => {
   logger.info(`Received request to scrape URL: ${url}`);
 
   try {
+    console.log("0000000000 ", performance.now());
     const responseStream = gotScraping.stream(url);
 
     let html = "";
 
+    console.log("111111 ", performance.now());
     const transformStream = new Transform({
       transform(chunk, encoding, callback) {
         html += chunk.toString();
@@ -193,9 +197,11 @@ app.post("/", async (req, res) => {
       },
     });
 
+    console.log("2222222 ", performance.now());
+
     await pipeline(responseStream, transformStream);
 
-    console.log(html.length);
+    console.log("3333333 ", performance.now());
     const result = extractTextFromHTML(html, url);
 
     logger.info(`Scraping successful for URL: ${url}`);
