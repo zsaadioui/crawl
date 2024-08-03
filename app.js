@@ -1,3 +1,17 @@
+// Copyright 2021 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 import express from "express";
 import { pinoHttp, logger } from "./utils/logging.js";
 import { gotScraping } from "got-scraping";
@@ -8,7 +22,10 @@ import { Readability } from "@mozilla/readability";
 
 const app = express();
 
+// Use request-based logger for log correlation
 app.use(pinoHttp);
+
+// Add this line to parse JSON request bodies
 app.use(express.json());
 
 const noiseWords = [
@@ -87,10 +104,51 @@ const extractTextFromHTML = (html, url) => {
   const $ = cheerio.load(html);
   const baseUrl = new URL(url).origin;
 
-  // Remove unwanted elements
+  // Remove style, script, and other non-content elements
   $(
-    'style, script, noscript, iframe, object, embed, [hidden], [style*="display:none"], [aria-hidden="true"], header, footer, nav, aside, .ads, .banner, .cookie-notice, .social-share'
+    "style, script, noscript, iframe, object, embed, [hidden], [style=display:none], [aria-hidden=true]"
   ).remove();
+
+  // Extract text content from the body and trim leading/trailing whitespace
+  const text = $("body").text().trim();
+
+  // Replace multiple spaces and newlines with a single space
+  let cleanedText = text.replace(/\s\s+/g, " ").replace(/\n/g, " ").trim();
+
+  // Combine both noiseWords and stopWords into one set for efficient lookup
+  const combinedWords = new Set([...noiseWords, ...stopWords]);
+
+  // Split text into words and filter out combined noise and stop words
+  const words = cleanedText.split(" ");
+  const filteredWords = words.filter(
+    (word) => !combinedWords.has(word.toLowerCase())
+  );
+  cleanedText = filteredWords.join(" ");
+
+  // Extract meta tags
+  const metaDescription = $("meta[name='description']").attr("content") || "";
+  const metaTitle = $("title").text() || "";
+  const canonicalLink = $("link[rel='canonical']").attr("href") || "";
+  const canonical = canonicalLink ? new URL(canonicalLink, url).href : "";
+
+  // Extract URLs
+  const urls = [];
+  $("a[href]").each((index, element) => {
+    const href = $(element).attr("href");
+    if (href) {
+      try {
+        const parsedUrl = new URL(href, url);
+        if (
+          parsedUrl.origin === baseUrl &&
+          !excludedExtensions.test(parsedUrl.pathname)
+        ) {
+          urls.push(parsedUrl.href);
+        }
+      } catch (e) {
+        // Invalid URL, skip it
+      }
+    }
+  });
 
   // Extract main content using Readability
   const dom = new JSDOM($.html());
@@ -116,48 +174,12 @@ const extractTextFromHTML = (html, url) => {
     .replace(/^\s+|\s+$/g, "") // Trim leading/trailing whitespace
     .replace(/\[(?:\s*)\]/g, ""); // Remove empty links
 
-  // Original text cleaning process
-  let cleanedText = $("body")
-    .text()
-    .trim()
-    .replace(/\s\s+/g, " ")
-    .replace(/\n/g, " ")
-    .trim();
-  const combinedWords = new Set([...noiseWords, ...stopWords]);
-  const words = cleanedText.split(" ");
-  const filteredWords = words.filter(
-    (word) => !combinedWords.has(word.toLowerCase())
-  );
-  cleanedText = filteredWords.join(" ");
-
-  const metaDescription = $("meta[name='description']").attr("content") || "";
-  const metaTitle = $("title").text() || "";
-  const canonicalLink = $("link[rel='canonical']").attr("href") || "";
-  const canonical = canonicalLink ? new URL(canonicalLink, url).href : "";
-
-  const urls = [];
-  $("a[href]").each((index, element) => {
-    const href = $(element).attr("href");
-    if (href) {
-      try {
-        const parsedUrl = new URL(href, url);
-        if (
-          parsedUrl.origin === baseUrl &&
-          !excludedExtensions.test(parsedUrl.pathname)
-        ) {
-          urls.push(parsedUrl.href);
-        }
-      } catch (e) {
-        // Invalid URL, skip it
-      }
-    }
-  });
-
   // Extract keywords
   const keywords = extractKeywords(cleanedMarkdown);
 
+  // Returning all the gathered data
   return {
-    html,
+    html: html,
     text: cleanedText,
     metaDescription,
     metaTitle,
@@ -185,6 +207,7 @@ const extractKeywords = (text) => {
     .map((entry) => entry[0]);
 };
 
+// Example endpoint
 app.post("/", async (req, res) => {
   const { url } = req.body;
 
