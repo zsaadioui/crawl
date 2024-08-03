@@ -24,11 +24,13 @@
     "cheerio": "^1.0.0-rc.12",
     "express": "^4.19.2",
     "gcp-metadata": "^6.0.0",
+    "get-hrefs": "^4.0.0",
     "google-auth-library": "^9.0.0",
     "got-scraping": "^4.0.6",
     "jsdom": "^24.1.1",
     "pino": "^9.0.0",
     "pino-http": "^10.0.0",
+    "stopword": "^3.0.1",
     "turndown": "^7.2.0"
   },
   "devDependencies": {
