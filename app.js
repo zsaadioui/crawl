@@ -150,7 +150,6 @@ const extractTextFromHTML = (html, url) => {
 
   // Returning all the gathered data
   return {
-    html: html,
     text: cleanedText,
     metaDescription,
     metaTitle,
