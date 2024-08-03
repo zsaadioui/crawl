@@ -63,7 +63,7 @@ const extractTextFromHTML = (html, url) => {
   article.urls = urls;
   console.log(article);
 
-  return { article };
+  return article;
 };
 
 // Example endpoint
