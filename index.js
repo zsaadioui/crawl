@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import app from './app.js';
-import {logger, initLogCorrelation} from './utils/logging.js';
-import {fetchProjectId} from './utils/metadata.js';
+import app from "./app.js";
+import { logger, initLogCorrelation } from "./utils/logging.js";
+import { fetchProjectId } from "./utils/metadata.js";
 
 /**
  * Initialize app and start Express server
@@ -25,7 +25,7 @@ const main = async () => {
     try {
       project = await fetchProjectId();
     } catch {
-      logger.warn('Could not fetch Project Id for tracing.');
+      logger.warn("Could not fetch Project Id for tracing.");
     }
   }
   // Initialize request-based logger with project Id
@@ -39,9 +39,9 @@ const main = async () => {
 /**
  * Listen for termination signal
  */
-process.on('SIGTERM', () => {
+process.on("SIGTERM", () => {
   // Clean up resources on shutdown
-  logger.info('Caught SIGTERM.');
+  logger.info("Caught SIGTERM.");
   logger.flush();
 });
 
