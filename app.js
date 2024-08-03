@@ -1,17 +1,3 @@
-// Copyright 2021 Google LLC
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-
 import express from "express";
 import { pinoHttp, logger } from "./utils/logging.js";
 import { gotScraping } from "got-scraping";
@@ -20,6 +6,7 @@ import { JSDOM } from "jsdom";
 import { Readability } from "@mozilla/readability";
 import getHrefs from "get-hrefs";
 import { removeStopwords, eng as englishStopwords } from "stopword";
+import { convert } from "html-to-text";
 
 const app = express();
 
@@ -33,20 +20,47 @@ const excludedExtensions =
   /\.(js|css|png|jpe?g|gif|wmv|mp3|mp4|wav|pdf|docx?|xls|zip|rar|exe|dll|bin|pptx?|potx?|wmf|rtf|webp|webm)$/i;
 
 const extractTextFromHTML = (html, url) => {
+  // Use Readability to extract the article
   const dom = new JSDOM(html);
   const reader = new Readability(dom.window.document);
   const article = reader.parse();
 
-  article.url = url;
+  // Use Cheerio to clean up the HTML before converting to text
+  const $ = cheerio.load(html);
 
-  if (article && article.textContent) {
-    const wordsArray = article.textContent.split(" ");
-    const cleanWordsArray = removeStopwords(wordsArray, englishStopwords);
-    article.textContent = cleanWordsArray.join(" ");
-  }
+  // Remove style, script, and other non-content elements
+  $(
+    "style, script, noscript, iframe, object, embed, [hidden], [style=display:none], [aria-hidden=true]"
+  ).remove();
+
+  // Get the cleaned HTML
+  const cleanedHtml = $.html();
+
+  // Convert cleaned HTML to text using html-to-text
+  const options = {
+    wordwrap: null, // Disable word wrapping
+    preserveNewlines: true, // Keep original line breaks
+    selectors: [
+      { selector: "a", options: { ignoreHref: true } }, // Don't include link URLs in the text
+      { selector: "img", format: "skip" }, // Skip images
+    ],
+  };
+
+  let cleanedText = convert(cleanedHtml, options);
+
+  // Replace multiple spaces and newlines with a single space
+  cleanedText = cleanedText.replace(/\s\s+/g, " ").replace(/\n/g, " ").trim();
+
+  // Remove stopwords
+  const wordsArray = cleanedText.split(/\s+/);
+  const cleanWordsArray = removeStopwords(wordsArray, englishStopwords);
+  cleanedText = cleanWordsArray.join(" ");
+
+  // Update the article object
+  article.url = url;
+  article.textContent = cleanedText;
 
   const baseUrl = new URL(url).origin;
-
   const hrefs = getHrefs(html, { baseUrl });
   const urls = hrefs.filter((href) => {
     try {
@@ -61,7 +75,6 @@ const extractTextFromHTML = (html, url) => {
   });
 
   article.urls = urls;
-  console.log(article);
 
   return article;
 };
