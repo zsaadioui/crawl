@@ -5,6 +5,9 @@ import TurndownService from "turndown";
 import { JSDOM } from "jsdom";
 import getHrefs from "get-hrefs";
 import { removeStopwords, eng as englishStopwords } from "stopword";
+import CacheableLookup from "cacheable-lookup";
+import http from "http";
+import https from "https";
 
 const app = express();
 
@@ -36,6 +39,32 @@ turndownService.remove([
 
 const excludedExtensions =
   /\.(js|css|png|jpe?g|gif|wmv|mp3|mp4|wav|pdf|docx?|xls|zip|rar|exe|dll|bin|pptx?|potx?|wmf|rtf|webp|webm)$/i;
+
+// Optimize Got Scraping
+const cacheable = new CacheableLookup();
+
+const optimizedGotScraping = gotScraping.extend({
+  timeout: {
+    request: 5000, // 5 seconds timeout
+  },
+  dnsCache: cacheable,
+  agent: {
+    http: new http.Agent({ keepAlive: true }),
+    https: new https.Agent({ keepAlive: true }),
+  },
+  headerGeneratorOptions: {
+    browsers: [
+      {
+        name: "chrome",
+        minVersion: 87,
+        maxVersion: 89,
+      },
+    ],
+    devices: ["desktop"],
+    locales: ["en-US"],
+    operatingSystems: ["windows"],
+  },
+});
 
 const extractTextFromHTML = (html, url) => {
   // Create a JSDOM instance to manipulate the HTML
@@ -92,11 +121,13 @@ app.post("/", async (req, res) => {
   }
 
   try {
-    const { body } = await gotScraping.get(url);
+    const { body } = await optimizedGotScraping.get(url, {
+      responseType: "text", // Use 'text' for HTML content
+    });
     const result = extractTextFromHTML(body, url);
     res.json(result);
   } catch (err) {
-    console.error("Error fetching the URL: ", err);
+    logger.error({ err, url }, "Error fetching the URL");
     res.status(500).json({ error: "Error fetching the URL" });
   }
 });
