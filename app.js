@@ -101,6 +101,7 @@ const excludedExtensions =
 const extractTextFromHTML = (html, url) => {
   const baseUrl = new URL(url).origin;
 
+  console.log("4444 ", performance.now());
   // Convert cleaned HTML to text using html-to-text
   const options = {
     wordwrap: null, // Disable word wrapping
@@ -112,6 +113,8 @@ const extractTextFromHTML = (html, url) => {
   };
 
   let text = convert(html, options);
+
+  console.log("55555 ", performance.now());
 
   // Replace multiple spaces and newlines with a single space
   let cleanedText = text.replace(/\s\s+/g, " ").replace(/\n/g, " ").trim();
@@ -126,7 +129,10 @@ const extractTextFromHTML = (html, url) => {
   );
   cleanedText = filteredWords.join(" ");
 
+  console.log("66666 ", performance.now());
+
   const hrefs = getHrefs(html, { baseUrl });
+  console.log("77777 ", performance.now());
   const urls = hrefs.filter((href) => {
     try {
       const parsedUrl = new URL(href, url);
@@ -138,6 +144,7 @@ const extractTextFromHTML = (html, url) => {
       return false;
     }
   });
+  console.log("88888 ", performance.now());
 
   // Returning all the gathered data
   return {
