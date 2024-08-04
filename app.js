@@ -48,14 +48,11 @@ const extractTextFromHTML = (html, url) => {
   );
   elementsToRemove.forEach((el) => el.remove());
 
-  // Extract only the main content (adjust selector as needed)
-  const mainContent =
-    document.querySelector("main") ||
-    document.querySelector("article") ||
-    document.body;
+  // Extract the content
+  const content = document.documentElement.outerHTML;
 
-  // Convert the cleaned HTML to Markdown
-  const markdown = turndownService.turndown(mainContent.innerHTML);
+  // Convert the HTML to Markdown
+  const markdown = turndownService.turndown(content);
 
   // Replace multiple spaces and newlines with a single space
   let cleanedMarkdown = markdown
