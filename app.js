@@ -67,7 +67,7 @@ const extractTextFromHTML = (html, url) => {
 
   // Remove unnecessary elements
   const elementsToRemove = document.querySelectorAll(
-    "header, aside, nav, footer, .ads, .comments"
+    "header, aside, nav, footer, .ads, .comments, img"
   );
   elementsToRemove.forEach((el) => el.remove());
 
