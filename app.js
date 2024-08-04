@@ -70,7 +70,8 @@ const extractTextFromHTML = (html, url) => {
     "header, aside, nav, footer, .ads, .comments, img, script, style, iframe, noscript, " +
       "button, input, form, .social-media, .share-buttons, .related-posts, .sidebar, " +
       ".menu, .navigation, .author-info, .metadata, .tags, .categories, .pagination, " +
-      ".cookie-notice, .newsletter-signup, .popup, .modal, .banner, .advertisement"
+      ".cookie-notice, .newsletter-signup, .popup, .modal, .banner, .advertisement, " +
+      "[hidden], [style='display:none'], [aria-hidden='true']"
   );
   elementsToRemove.forEach((el) => el.remove());
 
