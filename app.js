@@ -15,7 +15,7 @@
 import express from "express";
 import { pinoHttp, logger } from "./utils/logging.js";
 import { gotScraping } from "got-scraping";
-import cheerio from "cheerio";
+import { convert } from "html-to-text";
 import getHrefs from "get-hrefs";
 import { Transform } from "stream";
 import { pipeline } from "stream/promises";
