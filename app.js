@@ -43,7 +43,7 @@ const cacheable = new CacheableLookup();
 
 const optimizedGotScraping = gotScraping.extend({
   timeout: {
-    request: 10000, // Increase to 10 seconds
+    request: 30000, // Increase to 10 seconds
   },
   dnsCache: cacheable,
   headerGeneratorOptions: {
@@ -115,10 +115,20 @@ app.post("/", async (req, res) => {
   }
 
   try {
+    logger.info({ url }, "Starting request");
+    const startTime = Date.now();
+
     const { body } = await optimizedGotScraping.get(url, {
-      responseType: "text", // Use 'text' for HTML content
+      responseType: "text",
     });
+    logger.info({ url, fetchTime: Date.now() - startTime }, "Fetched URL");
+
     const result = extractTextFromHTML(body, url);
+    logger.info(
+      { url, totalTime: Date.now() - startTime },
+      "Finished processing"
+    );
+
     res.json(result);
   } catch (err) {
     logger.error({ err, url }, "Error fetching the URL");
