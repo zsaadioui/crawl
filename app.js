@@ -7,8 +7,6 @@ import { Readability } from "@mozilla/readability";
 import getHrefs from "get-hrefs";
 import { removeStopwords, eng as englishStopwords } from "stopword";
 import { convert } from "html-to-text";
-import { Transform } from "stream";
-import { pipeline } from "stream/promises";
 
 const app = express();
 
@@ -24,15 +22,43 @@ const excludedExtensions =
 const extractTextFromHTML = (html, url) => {
   // Use Readability to extract the article
   const dom = new JSDOM(html);
-
-  console.log("4444 ", performance.now());
   const reader = new Readability(dom.window.document);
-  console.log("55555 ", performance.now());
   const article = reader.parse();
-  console.log("666666 ", performance.now());
+
+  // Use Cheerio to clean up the HTML before converting to text
+  const $ = cheerio.load(html);
+
+  // Remove style, script, and other non-content elements
+  $(
+    "style, script, noscript, iframe, object, embed, [hidden], [style=display:none], [aria-hidden=true]"
+  ).remove();
+
+  // Get the cleaned HTML
+  const cleanedHtml = $.html();
+
+  // Convert cleaned HTML to text using html-to-text
+  const options = {
+    wordwrap: null, // Disable word wrapping
+    preserveNewlines: true, // Keep original line breaks
+    selectors: [
+      { selector: "a", options: { ignoreHref: true } }, // Don't include link URLs in the text
+      { selector: "img", format: "skip" }, // Skip images
+    ],
+  };
+
+  let cleanedText = convert(cleanedHtml, options);
+
+  // Replace multiple spaces and newlines with a single space
+  cleanedText = cleanedText.replace(/\s\s+/g, " ").replace(/\n/g, " ").trim();
+
+  // Remove stopwords
+  const wordsArray = cleanedText.split(/\s+/);
+  const cleanWordsArray = removeStopwords(wordsArray, englishStopwords);
+  cleanedText = cleanWordsArray.join(" ");
 
   // Update the article object
   article.url = url;
+  article.textContent = cleanedText;
 
   const baseUrl = new URL(url).origin;
   const hrefs = getHrefs(html, { baseUrl });
@@ -62,25 +88,8 @@ app.post("/", async (req, res) => {
   }
 
   try {
-    console.log("0000000000 ", performance.now());
-    const responseStream = gotScraping.stream(url);
-
-    let html = "";
-
-    console.log("111111 ", performance.now());
-    const transformStream = new Transform({
-      transform(chunk, encoding, callback) {
-        html += chunk.toString();
-        callback();
-      },
-    });
-
-    console.log("2222222 ", performance.now());
-
-    await pipeline(responseStream, transformStream);
-
-    console.log("3333333 ", performance.now());
-    const result = extractTextFromHTML(html, url);
+    const { body } = await gotScraping.get(url);
+    const result = extractTextFromHTML(body, url);
     res.json(result);
   } catch (err) {
     console.error("Error fetching the URL: ", err);
