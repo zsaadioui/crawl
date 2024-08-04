@@ -7,6 +7,8 @@ import { Readability } from "@mozilla/readability";
 import getHrefs from "get-hrefs";
 import { removeStopwords, eng as englishStopwords } from "stopword";
 import { convert } from "html-to-text";
+import { Transform } from "stream";
+import { pipeline } from "stream/promises";
 
 const app = express();
 
