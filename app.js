@@ -6,8 +6,6 @@ import { JSDOM } from "jsdom";
 import getHrefs from "get-hrefs";
 import { removeStopwords, eng as englishStopwords } from "stopword";
 import CacheableLookup from "cacheable-lookup";
-import http from "http";
-import https from "https";
 
 const app = express();
 
@@ -45,13 +43,9 @@ const cacheable = new CacheableLookup();
 
 const optimizedGotScraping = gotScraping.extend({
   timeout: {
-    request: 5000, // 5 seconds timeout
+    request: 10000, // Increase to 10 seconds
   },
   dnsCache: cacheable,
-  agent: {
-    http: new http.Agent({ keepAlive: true }),
-    https: new https.Agent({ keepAlive: true }),
-  },
   headerGeneratorOptions: {
     browsers: [
       {
@@ -128,6 +122,12 @@ app.post("/", async (req, res) => {
     res.json(result);
   } catch (err) {
     logger.error({ err, url }, "Error fetching the URL");
+    if (err.name === "TimeoutError") {
+      return res.status(504).json({ error: "Request timed out" });
+    }
+    if (err.name === "HTTPError") {
+      return res.status(err.response.statusCode).json({ error: err.message });
+    }
     res.status(500).json({ error: "Error fetching the URL" });
   }
 });
