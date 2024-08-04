@@ -31,45 +31,8 @@ const extractTextFromHTML = (html, url) => {
   const article = reader.parse();
   console.log("666666 ", performance.now());
 
-  // Use Cheerio to clean up the HTML before converting to text
-  const $ = cheerio.load(html);
-  console.log("7777777 ", performance.now());
-
-  // Remove style, script, and other non-content elements
-  $(
-    "style, script, noscript, iframe, object, embed, [hidden], [style=display:none], [aria-hidden=true]"
-  ).remove();
-
-  // Get the cleaned HTML
-  const cleanedHtml = $.html();
-
-  console.log("88888 ", performance.now());
-
-  // Convert cleaned HTML to text using html-to-text
-  const options = {
-    wordwrap: null, // Disable word wrapping
-    preserveNewlines: true, // Keep original line breaks
-    selectors: [
-      { selector: "a", options: { ignoreHref: true } }, // Don't include link URLs in the text
-      { selector: "img", format: "skip" }, // Skip images
-    ],
-  };
-
-  let cleanedText = convert(cleanedHtml, options);
-
-  console.log("9999999 ", performance.now());
-
-  // Replace multiple spaces and newlines with a single space
-  cleanedText = cleanedText.replace(/\s\s+/g, " ").replace(/\n/g, " ").trim();
-
-  // Remove stopwords
-  const wordsArray = cleanedText.split(/\s+/);
-  const cleanWordsArray = removeStopwords(wordsArray, englishStopwords);
-  cleanedText = cleanWordsArray.join(" ");
-
   // Update the article object
   article.url = url;
-  article.textContent = cleanedText;
 
   const baseUrl = new URL(url).origin;
   const hrefs = getHrefs(html, { baseUrl });
