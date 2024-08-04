@@ -3,6 +3,8 @@ import { pinoHttp, logger } from "./utils/logging.js";
 import { gotScraping } from "got-scraping";
 import TurndownService from "turndown";
 import { JSDOM } from "jsdom";
+import getHrefs from "get-hrefs";
+import { removeStopwords, eng as englishStopwords } from "stopword";
 
 const app = express();
 
@@ -25,6 +27,11 @@ turndownService.remove([
   "footer",
   "iframe",
   "noscript",
+  "object",
+  "embed",
+  "[hidden]",
+  "[style=display:none]",
+  "[aria-hidden=true]",
 ]);
 
 const excludedExtensions =
@@ -50,27 +57,33 @@ const extractTextFromHTML = (html, url) => {
   // Convert the cleaned HTML to Markdown
   const markdown = turndownService.turndown(mainContent.innerHTML);
 
+  // Replace multiple spaces and newlines with a single space
+  let cleanedMarkdown = markdown
+    .replace(/\s\s+/g, " ")
+    .replace(/\n/g, " ")
+    .trim();
+
+  // Remove stopwords
+  const wordsArray = cleanedMarkdown.split(/\s+/);
+  const cleanWordsArray = removeStopwords(wordsArray, englishStopwords);
+  cleanedMarkdown = cleanWordsArray.join(" ");
+
   // Extract URLs
   const baseUrl = new URL(url).origin;
-  const urls = Array.from(document.querySelectorAll("a[href]"))
-    .map((a) => {
-      try {
-        const href = a.getAttribute("href");
-        const parsedUrl = new URL(href, url);
-        if (
-          parsedUrl.origin === baseUrl &&
-          !excludedExtensions.test(parsedUrl.pathname)
-        ) {
-          return parsedUrl.href;
-        }
-      } catch (e) {
-        // Invalid URL, skip it
-      }
-      return null;
-    })
-    .filter(Boolean);
+  const hrefs = getHrefs(html, { baseUrl });
+  const urls = hrefs.filter((href) => {
+    try {
+      const parsedUrl = new URL(href, url);
+      return (
+        parsedUrl.origin === baseUrl &&
+        !excludedExtensions.test(parsedUrl.pathname)
+      );
+    } catch (e) {
+      return false;
+    }
+  });
 
-  return { url, markdown, urls };
+  return { url, markdown: cleanedMarkdown, urls };
 };
 
 // Example endpoint
