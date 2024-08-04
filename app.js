@@ -22,11 +22,16 @@ const excludedExtensions =
 const extractTextFromHTML = (html, url) => {
   // Use Readability to extract the article
   const dom = new JSDOM(html);
+
+  console.log("4444 ", performance.now());
   const reader = new Readability(dom.window.document);
+  console.log("55555 ", performance.now());
   const article = reader.parse();
+  console.log("666666 ", performance.now());
 
   // Use Cheerio to clean up the HTML before converting to text
   const $ = cheerio.load(html);
+  console.log("7777777 ", performance.now());
 
   // Remove style, script, and other non-content elements
   $(
@@ -35,6 +40,8 @@ const extractTextFromHTML = (html, url) => {
 
   // Get the cleaned HTML
   const cleanedHtml = $.html();
+
+  console.log("88888 ", performance.now());
 
   // Convert cleaned HTML to text using html-to-text
   const options = {
@@ -47,6 +54,8 @@ const extractTextFromHTML = (html, url) => {
   };
 
   let cleanedText = convert(cleanedHtml, options);
+
+  console.log("9999999 ", performance.now());
 
   // Replace multiple spaces and newlines with a single space
   cleanedText = cleanedText.replace(/\s\s+/g, " ").replace(/\n/g, " ").trim();
