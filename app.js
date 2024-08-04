@@ -111,7 +111,7 @@ const extractTextFromHTML = (html, url) => {
     ],
   };
 
-  let text = convert(cleanedHtml, options);
+  let text = convert(html, options);
 
   // Replace multiple spaces and newlines with a single space
   let cleanedText = text.replace(/\s\s+/g, " ").replace(/\n/g, " ").trim();
