@@ -16,6 +16,7 @@ import express from "express";
 import { pinoHttp, logger } from "./utils/logging.js";
 import { gotScraping } from "got-scraping";
 import cheerio from "cheerio";
+import getHrefs from "get-hrefs";
 import { Transform } from "stream";
 import { pipeline } from "stream/promises";
 
@@ -98,20 +99,19 @@ const excludedExtensions =
   /\.(js|css|png|jpe?g|gif|wmv|mp3|mp4|wav|pdf|docx?|xls|zip|rar|exe|dll|bin|pptx?|potx?|wmf|rtf|webp|webm)$/i;
 
 const extractTextFromHTML = (html, url) => {
-  logger.info(`Starting text extraction from HTML for URL: ${url}`);
-  console.log("4444444 ", performance.now());
-  const $ = cheerio.load(html);
-  console.log("555555 ", performance.now());
   const baseUrl = new URL(url).origin;
 
-  // Remove style, script, and other non-content elements
-  $(
-    "style, script, noscript, iframe, object, embed, [hidden], [style=display:none], [aria-hidden=true]"
-  ).remove();
+  // Convert cleaned HTML to text using html-to-text
+  const options = {
+    wordwrap: null, // Disable word wrapping
+    preserveNewlines: true, // Keep original line breaks
+    selectors: [
+      { selector: "a", options: { ignoreHref: true } }, // Don't include link URLs in the text
+      { selector: "img", format: "skip" }, // Skip images
+    ],
+  };
 
-  // Extract text content from the body and trim leading/trailing whitespace
-  const text = $("body").text().trim();
-  logger.debug(`Extracted raw text: ${text.substring(0, 100)}...`); // Log only the first 100 chars
+  let text = convert(cleanedHtml, options);
 
   // Replace multiple spaces and newlines with a single space
   let cleanedText = text.replace(/\s\s+/g, " ").replace(/\n/g, " ").trim();
@@ -125,49 +125,24 @@ const extractTextFromHTML = (html, url) => {
     (word) => !combinedWords.has(word.toLowerCase())
   );
   cleanedText = filteredWords.join(" ");
-  logger.debug(`Cleaned text: ${cleanedText.substring(0, 100)}...`);
 
-  // Extract meta tags
-  const metaDescription = $("meta[name='description']").attr("content") || "";
-  const metaTitle = $("title").text() || "";
-  const canonicalLink = $("link[rel='canonical']").attr("href") || "";
-  const canonical = canonicalLink ? new URL(canonicalLink, url).href : "";
-
-  // Log extracted meta tags
-  logger.info(
-    `Meta tags - Title: ${metaTitle}, Description: ${metaDescription}, Canonical: ${canonical}`
-  );
-
-  // Extract URLs
-  const urls = [];
-  $("a[href]").each((index, element) => {
-    const href = $(element).attr("href");
-    if (href) {
-      try {
-        const parsedUrl = new URL(href, url); // Use base URL context
-        if (
-          parsedUrl.origin === baseUrl &&
-          !excludedExtensions.test(parsedUrl.pathname)
-        ) {
-          // Check if it belongs to the same origin and does not match excluded extensions
-          urls.push(parsedUrl.href);
-        }
-      } catch (e) {
-        // Invalid URL, skip it
-        logger.warn(`Invalid URL encountered and skipped: ${href}`, e);
-      }
+  const hrefs = getHrefs(html, { baseUrl });
+  const urls = hrefs.filter((href) => {
+    try {
+      const parsedUrl = new URL(href, url);
+      return (
+        parsedUrl.origin === baseUrl &&
+        !excludedExtensions.test(parsedUrl.pathname)
+      );
+    } catch (e) {
+      return false;
     }
   });
-  logger.info(`Extracted ${urls.length} valid URLs from page.`);
 
   // Returning all the gathered data
   return {
     text: cleanedText,
-    metaDescription,
-    metaTitle,
     url,
-    canonical,
-    canonicalLink,
     urls,
   };
 };
