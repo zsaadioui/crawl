@@ -122,9 +122,24 @@ app.post("/", async (req, res) => {
     logger.info({ url }, "Starting request");
     const startTime = Date.now();
 
-    const { body } = await optimizedGotScraping.get(url, {
+    const response = await optimizedGotScraping.get(url, {
       responseType: "text",
+      throwHttpErrors: false, // This allows us to handle 404 errors
     });
+
+    if (response.statusCode === 404) {
+      logger.info({ url }, "404 Not Found");
+      return res.status(404).json({ error: "Page not found" });
+    }
+
+    if (!response.ok) {
+      logger.error({ url, statusCode: response.statusCode }, "HTTP error");
+      return res
+        .status(response.statusCode)
+        .json({ error: `HTTP error: ${response.statusCode}` });
+    }
+
+    const body = response.body;
     logger.info({ url, fetchTime: Date.now() - startTime }, "Fetched URL");
 
     const result = extractTextFromHTML(body, url);
@@ -138,9 +153,6 @@ app.post("/", async (req, res) => {
     logger.error({ err, url }, "Error fetching the URL");
     if (err.name === "TimeoutError") {
       return res.status(504).json({ error: "Request timed out" });
-    }
-    if (err.name === "HTTPError") {
-      return res.status(err.response.statusCode).json({ error: err.message });
     }
     res.status(500).json({ error: "Error fetching the URL" });
   }
