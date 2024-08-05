@@ -1,21 +1,8 @@
-// Copyright 2021 Google LLC
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-
 import express from "express";
 import { pinoHttp, logger } from "./utils/logging.js";
 import { gotScraping } from "got-scraping";
-import cheerio from "cheerio";
+import TurndownService from "turndown";
+import { JSDOM } from "jsdom";
 import getHrefs from "get-hrefs";
 import { removeStopwords, eng as englishStopwords } from "stopword";
 import CacheableLookup from "cacheable-lookup";
@@ -28,6 +15,26 @@ app.use(pinoHttp);
 // Add this line to parse JSON request bodies
 app.use(express.json());
 
+const turndownService = new TurndownService({
+  headingStyle: "atx",
+  codeBlockStyle: "fenced",
+});
+
+// Configure Turndown to remove unwanted elements
+turndownService.remove([
+  "script",
+  "style",
+  "nav",
+  "footer",
+  "iframe",
+  "noscript",
+  "object",
+  "embed",
+  "[hidden]",
+  "[style=display:none]",
+  "[aria-hidden=true]",
+]);
+
 const excludedExtensions =
   /\.(js|css|png|jpe?g|gif|wmv|mp3|mp4|wav|pdf|docx?|xls|zip|rar|exe|dll|bin|pptx?|potx?|wmf|rtf|webp|webm)$/i;
 
@@ -36,7 +43,7 @@ const cacheable = new CacheableLookup();
 
 const optimizedGotScraping = gotScraping.extend({
   timeout: {
-    request: 30000, // Increase to 30 seconds
+    request: 30000, // Increase to 10 seconds
   },
   dnsCache: cacheable,
   headerGeneratorOptions: {
@@ -54,47 +61,36 @@ const optimizedGotScraping = gotScraping.extend({
 });
 
 const extractTextFromHTML = (html, url) => {
-  const $ = cheerio.load(html);
+  // Create a JSDOM instance to manipulate the HTML
+  const dom = new JSDOM(html);
+  const document = dom.window.document;
 
-  // Process img elements
-  $("img").each((i, elem) => {
-    const $elem = $(elem);
-    const src = $elem.attr("src");
-    const alt = $elem.attr("alt");
-    const title = $elem.attr("title");
-    const figcaption = $elem.closest("figure").find("figcaption").text().trim();
+  // Remove unnecessary elements
+  const elementsToRemove = document.querySelectorAll(
+    "header, aside, nav, footer, .ads, .comments, script, style, iframe, noscript, " +
+      "button, input, form, .social-media, .share-buttons, .related-posts, .sidebar, " +
+      ".menu, .navigation, .author-info, .metadata, .tags, .categories, .pagination, " +
+      ".cookie-notice, .newsletter-signup, .popup, .modal, .banner, .advertisement, " +
+      "[hidden], [style='display:none'], [aria-hidden='true']"
+  );
+  elementsToRemove.forEach((el) => el.remove());
 
-    let imgInfo = "[Image";
-    if (src) imgInfo += ` src="${src}"`;
-    if (alt) imgInfo += ` alt="${alt}"`;
-    if (title) imgInfo += ` title="${title}"`;
-    if (figcaption) imgInfo += ` caption="${figcaption}"`;
-    imgInfo += "]";
+  // Extract the content
+  const content = document.documentElement.outerHTML;
 
-    $elem.replaceWith(` ${imgInfo} `);
-  });
-
-  // Remove style, script, and other non-content elements
-  $(
-    "header, aside, nav, footer, .ads, .comments, script, style, iframe, noscript, button, input, form, .social-media, .share-buttons, .related-posts, .sidebar, .menu, .navigation, .author-info, .metadata, .tags, .categories, .pagination, .cookie-notice, .newsletter-signup, .popup, .modal, .banner, .advertisement, [hidden], [style='display:none'], [aria-hidden='true']"
-  ).remove();
-
-  // Extract text content from the body and trim leading/trailing whitespace
-  const text = $("body").text().trim();
+  // Convert the HTML to Markdown
+  const markdown = turndownService.turndown(content);
 
   // Replace multiple spaces and newlines with a single space
-  let cleanedText = text.replace(/\s\s+/g, " ").replace(/\n/g, " ").trim();
+  let cleanedMarkdown = markdown
+    .replace(/\s\s+/g, " ")
+    .replace(/\n/g, " ")
+    .trim();
 
   // Remove stopwords
-  const wordsArray = cleanedText.split(/\s+/);
+  const wordsArray = cleanedMarkdown.split(/\s+/);
   const cleanWordsArray = removeStopwords(wordsArray, englishStopwords);
-  cleanedText = cleanWordsArray.join(" ");
-
-  // Extract meta tags
-  const metaDescription = $("meta[name='description']").attr("content") || "";
-  const metaTitle = $("title").text() || "";
-  const canonicalLink = $("link[rel='canonical']").attr("href") || "";
-  const canonical = canonicalLink ? new URL(canonicalLink, url).href : "";
+  cleanedMarkdown = cleanWordsArray.join(" ");
 
   // Extract URLs
   const baseUrl = new URL(url).origin;
@@ -111,17 +107,7 @@ const extractTextFromHTML = (html, url) => {
     }
   });
 
-  // Returning all the gathered data
-  return {
-    html: html,
-    text: cleanedText,
-    metaDescription,
-    metaTitle,
-    url,
-    canonical,
-    canonicalLink,
-    urls,
-  };
+  return { url, markdown: cleanedMarkdown, urls };
 };
 
 // Example endpoint
