@@ -71,7 +71,7 @@ const extractTextFromHTML = (html, url) => {
       "button, input, form, .social-media, .share-buttons, .related-posts, .sidebar, " +
       ".menu, .navigation, .author-info, .metadata, .tags, .categories, .pagination, " +
       ".cookie-notice, .newsletter-signup, .popup, .modal, .banner, .advertisement, " +
-      "[hidden], [style='display:none'], [aria-hidden='true']"
+      "[hidden], [style='display:none'], [aria-hidden='true'], img"
   );
   elementsToRemove.forEach((el) => el.remove());
 
