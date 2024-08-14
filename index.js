@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import app from "./app.js";
+import app from "./app-turndown.js";
 import { logger, initLogCorrelation } from "./utils/logging.js";
 import { fetchProjectId } from "./utils/metadata.js";
 
