@@ -162,6 +162,32 @@ const extractTextFromHTML = (html, url) => {
   return { url, markdown: cleanedMarkdown, urls };
 };
 
+async function fetchContentFromUrl(url) {
+  try {
+    const response = await optimizedGotScraping.get(url, {
+      responseType: "text",
+      throwHttpErrors: false,
+    });
+
+    if (!response.ok) {
+      logger.error(
+        { url, statusCode: response.statusCode },
+        "HTTP error when fetching content"
+      );
+      return "";
+    }
+
+    const body = response.body;
+    return extractTextFromHTML(body, url).markdown;
+  } catch (error) {
+    logger.error(
+      { url, error: error.message, stack: error.stack },
+      "Error fetching content"
+    );
+    return "";
+  }
+}
+
 // Example endpoint
 app.post("/", async (req, res) => {
   const { url } = req.body;
