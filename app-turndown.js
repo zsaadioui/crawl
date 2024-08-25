@@ -6,6 +6,7 @@ import { JSDOM } from "jsdom";
 import getHrefs from "get-hrefs";
 import { removeStopwords, eng as englishStopwords } from "stopword";
 import CacheableLookup from "cacheable-lookup";
+import axios from "axios";
 
 const app = express();
 
@@ -59,6 +60,57 @@ const optimizedGotScraping = gotScraping.extend({
     operatingSystems: ["windows"],
   },
 });
+
+async function fetchDataFromGoogle(
+  query,
+  maxChars,
+  googleApiKey,
+  googleSearchEngineId
+) {
+  try {
+    const response = await axios.get(
+      `https://www.googleapis.com/customsearch/v1?key=${googleApiKey}&cx=${googleSearchEngineId}&q=${encodeURIComponent(
+        query
+      )}&num=5`
+    );
+
+    let context = "";
+    const excludedPatterns =
+      /\.(pdf|doc|docx|xls|xlsx|ppt|pptx|txt|csv|zip|rar|jpg|jpeg|png|gif|bmp|webp|svg)$/i;
+    const suspectedNonTextPatterns = /viewcontent|download|serveFile|\.cgi/i;
+
+    for (const item of response.data.items) {
+      if (
+        !excludedPatterns.test(item.link) &&
+        !suspectedNonTextPatterns.test(item.link)
+      ) {
+        try {
+          const content = await fetchContentFromUrl(item.link);
+
+          if (content && content.length > 100) {
+            context += `Title: ${item.title}\nSOURCE: ${item.link}\nContent: ${content}\n\n`;
+
+            if (context.length >= maxChars) {
+              context = context.slice(0, maxChars);
+              break;
+            }
+          }
+        } catch (fetchError) {
+          logger.error(
+            { url: item.link, error: fetchError },
+            "Error fetching content"
+          );
+          // Continue to the next item
+        }
+      }
+    }
+
+    return context;
+  } catch (error) {
+    logger.error({ error }, "Error fetching data from Google");
+    return "";
+  }
+}
 
 const extractTextFromHTML = (html, url) => {
   // Create a JSDOM instance to manipulate the HTML
@@ -155,6 +207,49 @@ app.post("/", async (req, res) => {
       return res.status(504).json({ error: "Request timed out" });
     }
     res.status(500).json({ error: "Error fetching the URL" });
+  }
+});
+
+// New endpoint for handling multiple search queries
+app.post("/query", async (req, res) => {
+  const { queries, googleApiKey, googleSearchEngineId } = req.body;
+
+  if (!queries || !Array.isArray(queries) || queries.length === 0) {
+    return res.status(400).json({ error: "Valid queries array is required" });
+  }
+
+  if (!googleApiKey || !googleSearchEngineId) {
+    return res
+      .status(400)
+      .json({ error: "Google API credentials are required" });
+  }
+
+  try {
+    let contextData = "";
+    const maxTotalChars = 200000;
+    const charsPerQuery = Math.floor(maxTotalChars / queries.length);
+
+    for (const query of queries) {
+      logger.info({ query }, "Fetching data for query");
+      const queryContext = await fetchDataFromGoogle(
+        query,
+        charsPerQuery,
+        googleApiKey,
+        googleSearchEngineId
+      );
+      contextData += `**${query}:**\n${queryContext}\n-------------------------------------------------------------------------------\n\n\n`;
+    }
+
+    contextData = contextData.slice(0, maxTotalChars);
+    logger.info(
+      { contextLength: contextData.length },
+      "Total context data length"
+    );
+
+    res.json({ contextData });
+  } catch (err) {
+    logger.error({ err }, "Error processing queries");
+    res.status(500).json({ error: "Error processing queries" });
   }
 });
 
