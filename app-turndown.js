@@ -181,11 +181,15 @@ const extractTextFromHTML = (html, url) => {
   return { url, markdown: cleanedMarkdown, urls };
 };
 
+// Modify fetchContentFromUrl to include a timeout for individual requests
 async function fetchContentFromUrl(url) {
   try {
     const response = await optimizedGotScraping.get(url, {
       responseType: "text",
       throwHttpErrors: false,
+      timeout: {
+        request: 10000, // Set request timeout to 10 seconds
+      },
     });
 
     if (!response.ok) {
@@ -199,6 +203,13 @@ async function fetchContentFromUrl(url) {
     const body = response.body;
     return extractTextFromHTML(body, url).markdown;
   } catch (error) {
+    // Skip URLs that time out or cause fetch errors
+    if (error.name === "RequestError" || error.name === "TimeoutError") {
+      logger.warn({ url, error: error.message }, "Skipping URL due to timeout");
+      return ""; // Skip this URL if it times out
+    }
+
+    // Log other errors and continue
     logger.error(
       { url, error: error.message, stack: error.stack },
       "Error fetching content"
