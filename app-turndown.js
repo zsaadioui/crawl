@@ -79,31 +79,51 @@ async function fetchDataFromGoogle(
       /\.(pdf|doc|docx|xls|xlsx|ppt|pptx|txt|csv|zip|rar|jpg|jpeg|png|gif|bmp|webp|svg)$/i;
     const suspectedNonTextPatterns = /viewcontent|download|serveFile|\.cgi/i;
 
-    for (const item of response.data.items) {
-      if (
-        !excludedPatterns.test(item.link) &&
-        !suspectedNonTextPatterns.test(item.link)
-      ) {
+    const urlFetchPromises = response.data.items
+      .filter(
+        (item) =>
+          !excludedPatterns.test(item.link) &&
+          !suspectedNonTextPatterns.test(item.link)
+      )
+      .map(async (item) => {
         try {
-          const content = await fetchContentFromUrl(item.link);
+          // Set a shorter timeout for individual URL fetches
+          const timeoutPromise = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error("URL fetch timeout")), 10000)
+          );
+
+          const contentPromise = fetchContentFromUrl(item.link);
+          const content = await Promise.race([contentPromise, timeoutPromise]);
 
           if (content && content.length > 100) {
-            context += `Title: ${item.title}\nSOURCE: ${item.link}\nContent: ${content}\n\n`;
-
-            if (context.length >= maxChars) {
-              context = context.slice(0, maxChars);
-              break;
-            }
+            return {
+              title: item.title,
+              link: item.link,
+              content: content,
+            };
           }
         } catch (fetchError) {
           logger.error(
             { url: item.link, error: fetchError },
-            "Error fetching content"
+            "Error or timeout fetching content"
           );
-          // Continue to the next item
         }
+        return null;
+      });
+
+    // Wait for all URLs to be processed (or timeout)
+    const results = await Promise.all(urlFetchPromises);
+
+    // Filter out null results and build context
+    results.filter(Boolean).some((result) => {
+      const newContent = `Title: ${result.title}\nSOURCE: ${result.link}\nContent: ${result.content}\n\n`;
+
+      if (context.length + newContent.length <= maxChars) {
+        context += newContent;
+        return false;
       }
-    }
+      return true; // Stop if we've reached maxChars
+    });
 
     return context;
   } catch (error) {
@@ -238,7 +258,12 @@ app.post("/", async (req, res) => {
 
 // New endpoint for handling multiple search queries
 app.post("/query", async (req, res) => {
-  const { queries, googleApiKey, googleSearchEngineId } = req.body;
+  const {
+    queries,
+    googleApiKey,
+    googleSearchEngineId,
+    maxTotalChars = 200000,
+  } = req.body;
 
   if (!queries || !Array.isArray(queries) || queries.length === 0) {
     return res.status(400).json({ error: "Valid queries array is required" });
@@ -252,10 +277,14 @@ app.post("/query", async (req, res) => {
 
   try {
     let contextData = "";
-    const maxTotalChars = 200000;
     const charsPerQuery = Math.floor(maxTotalChars / queries.length);
 
-    for (const query of queries) {
+    // Set a timeout for the entire operation
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("Operation timeout")), 60000)
+    );
+
+    const queryPromises = queries.map(async (query) => {
       logger.info({ query }, "Fetching data for query");
       const queryContext = await fetchDataFromGoogle(
         query,
@@ -263,7 +292,23 @@ app.post("/query", async (req, res) => {
         googleApiKey,
         googleSearchEngineId
       );
-      contextData += `**${query}:**\n${queryContext}\n-------------------------------------------------------------------------------\n\n\n`;
+      return { query, queryContext };
+    });
+
+    try {
+      const results = await Promise.race([
+        Promise.all(queryPromises),
+        timeoutPromise,
+      ]);
+
+      results.forEach(({ query, queryContext }) => {
+        contextData += `**${query}:**\n${queryContext}\n-------------------------------------------------------------------------------\n\n\n`;
+      });
+    } catch (timeoutError) {
+      logger.warn(
+        { error: timeoutError },
+        "Operation timed out, returning partial results"
+      );
     }
 
     contextData = contextData.slice(0, maxTotalChars);
