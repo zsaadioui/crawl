@@ -68,40 +68,59 @@ async function fetchDataFromGoogle(
   googleSearchEngineId
 ) {
   try {
+    // Fetch search results from Google
     const response = await axios.get(
       `https://www.googleapis.com/customsearch/v1?key=${googleApiKey}&cx=${googleSearchEngineId}&q=${encodeURIComponent(
         query
       )}&num=5`
     );
 
-    let context = "";
     const excludedPatterns =
       /\.(pdf|doc|docx|xls|xlsx|ppt|pptx|txt|csv|zip|rar|jpg|jpeg|png|gif|bmp|webp|svg)$/i;
     const suspectedNonTextPatterns = /viewcontent|download|serveFile|\.cgi/i;
 
-    for (const item of response.data.items) {
-      if (
+    // Filter valid URLs
+    const validUrls = response.data.items.filter(
+      (item) =>
         !excludedPatterns.test(item.link) &&
         !suspectedNonTextPatterns.test(item.link)
-      ) {
+    );
+
+    // Fetch content from all valid URLs concurrently
+    const results = await Promise.all(
+      validUrls.map(async (item) => {
         try {
           const content = await fetchContentFromUrl(item.link);
-
           if (content && content.length > 100) {
-            context += `Title: ${item.title}\nSOURCE: ${item.link}\nContent: ${content}\n\n`;
-
-            if (context.length >= maxChars) {
-              context = context.slice(0, maxChars);
-              break;
-            }
+            return {
+              title: item.title,
+              link: item.link,
+              content: content,
+            };
           }
         } catch (fetchError) {
           logger.error(
             { url: item.link, error: fetchError },
             "Error fetching content"
           );
-          // Continue to the next item
+          return null;
         }
+      })
+    );
+
+    // Combine results while respecting maxChars
+    let context = "";
+    for (const result of results.filter(Boolean)) {
+      const entry = `Title: ${result.title}\nSOURCE: ${result.link}\nContent: ${result.content}\n\n`;
+
+      if (context.length + entry.length <= maxChars) {
+        context += entry;
+      } else {
+        const remainingChars = maxChars - context.length;
+        if (remainingChars > 0) {
+          context += entry.slice(0, remainingChars);
+        }
+        break;
       }
     }
 
