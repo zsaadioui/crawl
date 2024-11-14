@@ -71,48 +71,84 @@ async function fetchDataFromGoogle(
     const response = await axios.get(
       `https://www.googleapis.com/customsearch/v1?key=${googleApiKey}&cx=${googleSearchEngineId}&q=${encodeURIComponent(
         query
-      )}&num=5`
+      )}&num=10` // Increased from 5 to 10 to get more potential sources
     );
 
     let context = "";
     const excludedPatterns =
       /\.(pdf|doc|docx|xls|xlsx|ppt|pptx|txt|csv|zip|rar|jpg|jpeg|png|gif|bmp|webp|svg)$/i;
-    const suspectedNonTextPatterns = /viewcontent|download|serveFile|\.cgi/i;
+    const suspectedNonTextPatterns =
+      /viewcontent|download|serveFile|\.cgi|login|signin|signup|register|cart|checkout|search\?/i;
+
+    // Track success and failure metrics
+    let successfulUrls = 0;
+    let failedUrls = 0;
+    const failureReasons = new Map();
 
     const urlFetchPromises = response.data.items
-      .filter(
-        (item) =>
-          !excludedPatterns.test(item.link) &&
-          !suspectedNonTextPatterns.test(item.link)
-      )
+      .filter((item) => {
+        if (excludedPatterns.test(item.link)) {
+          failedUrls++;
+          failureReasons.set(item.link, "Excluded file extension");
+          return false;
+        }
+        if (suspectedNonTextPatterns.test(item.link)) {
+          failedUrls++;
+          failureReasons.set(item.link, "Suspected non-content URL");
+          return false;
+        }
+        return true;
+      })
       .map(async (item) => {
         try {
-          // Set a shorter timeout for individual URL fetches
-          const timeoutPromise = new Promise((_, reject) =>
-            setTimeout(() => reject(new Error("URL fetch timeout")), 10000)
+          const timeoutPromise = new Promise(
+            (_, reject) =>
+              setTimeout(() => reject(new Error("URL fetch timeout")), 20000) // Increased timeout
           );
 
           const contentPromise = fetchContentFromUrl(item.link);
           const content = await Promise.race([contentPromise, timeoutPromise]);
 
           if (content && content.length > 100) {
+            successfulUrls++;
             return {
               title: item.title,
               link: item.link,
               content: content,
             };
+          } else {
+            failedUrls++;
+            failureReasons.set(item.link, "No valid content extracted");
+            return null;
           }
         } catch (fetchError) {
+          failedUrls++;
+          failureReasons.set(item.link, fetchError.message);
           logger.error(
-            { url: item.link, error: fetchError },
+            {
+              url: item.link,
+              error: fetchError,
+              query,
+            },
             "Error or timeout fetching content"
           );
+          return null;
         }
-        return null;
       });
 
-    // Wait for all URLs to be processed (or timeout)
     const results = await Promise.all(urlFetchPromises);
+
+    // Log metrics for this query
+    logger.info(
+      {
+        query,
+        totalUrls: response.data.items.length,
+        successfulUrls,
+        failedUrls,
+        failureReasons: Object.fromEntries(failureReasons),
+      },
+      "Query processing metrics"
+    );
 
     // Filter out null results and build context
     results.filter(Boolean).some((result) => {
@@ -122,12 +158,16 @@ async function fetchDataFromGoogle(
         context += newContent;
         return false;
       }
-      return true; // Stop if we've reached maxChars
+      return true;
     });
+
+    if (context.length === 0) {
+      logger.warn({ query }, "No content extracted for query");
+    }
 
     return context;
   } catch (error) {
-    logger.error({ error }, "Error fetching data from Google");
+    logger.error({ error, query }, "Error fetching data from Google");
     return "";
   }
 }
@@ -183,29 +223,129 @@ const extractTextFromHTML = (html, url) => {
 };
 
 async function fetchContentFromUrl(url) {
-  try {
-    const response = await optimizedGotScraping.get(url, {
-      responseType: "text",
-      throwHttpErrors: false,
-    });
+  const retryableStatusCodes = [429, 503, 502, 504];
+  const maxRetries = 2;
+  let attempt = 0;
 
-    if (!response.ok) {
-      logger.error(
-        { url, statusCode: response.statusCode },
-        "HTTP error when fetching content"
+  while (attempt <= maxRetries) {
+    try {
+      // Add common browser headers to improve success rate
+      const response = await optimizedGotScraping.get(url, {
+        responseType: "text",
+        throwHttpErrors: false,
+        headers: {
+          accept:
+            "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+          "accept-language": "en-US,en;q=0.9",
+          "cache-control": "no-cache",
+          pragma: "no-cache",
+        },
+        timeout: {
+          request: 15000, // 15 seconds timeout
+          response: 15000,
+        },
+      });
+
+      // Log the response status and content type
+      logger.info(
+        {
+          url,
+          statusCode: response.statusCode,
+          contentType: response.headers["content-type"],
+          attempt: attempt + 1,
+        },
+        "URL fetch attempt"
       );
+
+      if (!response.ok) {
+        if (
+          retryableStatusCodes.includes(response.statusCode) &&
+          attempt < maxRetries
+        ) {
+          attempt++;
+          const delay = Math.pow(2, attempt) * 1000; // Exponential backoff
+          await new Promise((resolve) => setTimeout(resolve, delay));
+          continue;
+        }
+
+        logger.error(
+          {
+            url,
+            statusCode: response.statusCode,
+            contentType: response.headers["content-type"],
+            attempt: attempt + 1,
+          },
+          "Failed to fetch URL"
+        );
+        return "";
+      }
+
+      const contentType = response.headers["content-type"] || "";
+
+      // Skip if content type is not HTML or text
+      if (!contentType.includes("html") && !contentType.includes("text")) {
+        logger.warn(
+          { url, contentType },
+          "Skipping non-HTML/text content type"
+        );
+        return "";
+      }
+
+      const body = response.body;
+
+      // Simple check for valid HTML content
+      if (!body.includes("<") || !body.includes(">")) {
+        logger.warn(
+          { url, bodyLength: body.length },
+          "Content doesn't appear to be valid HTML"
+        );
+        return "";
+      }
+
+      const extracted = extractTextFromHTML(body, url);
+
+      // Log success metrics
+      logger.info(
+        {
+          url,
+          contentLength: extracted.markdown.length,
+          attempt: attempt + 1,
+        },
+        "Successfully extracted content"
+      );
+
+      return extracted.markdown;
+    } catch (error) {
+      logger.error(
+        {
+          url,
+          error: error.message,
+          code: error.code,
+          attempt: attempt + 1,
+          stack: error.stack,
+        },
+        "Error during content fetch"
+      );
+
+      // Retry on common network errors
+      if (
+        attempt < maxRetries &&
+        (error.code === "ECONNRESET" ||
+          error.code === "ETIMEDOUT" ||
+          error.code === "ECONNREFUSED" ||
+          error.name === "TimeoutError")
+      ) {
+        attempt++;
+        const delay = Math.pow(2, attempt) * 1000;
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        continue;
+      }
+
       return "";
     }
-
-    const body = response.body;
-    return extractTextFromHTML(body, url).markdown;
-  } catch (error) {
-    logger.error(
-      { url, error: error.message, stack: error.stack },
-      "Error fetching content"
-    );
-    return "";
   }
+
+  return "";
 }
 
 // Example endpoint
