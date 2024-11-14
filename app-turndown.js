@@ -71,103 +71,43 @@ async function fetchDataFromGoogle(
     const response = await axios.get(
       `https://www.googleapis.com/customsearch/v1?key=${googleApiKey}&cx=${googleSearchEngineId}&q=${encodeURIComponent(
         query
-      )}&num=10` // Increased from 5 to 10 to get more potential sources
+      )}&num=5`
     );
 
     let context = "";
     const excludedPatterns =
       /\.(pdf|doc|docx|xls|xlsx|ppt|pptx|txt|csv|zip|rar|jpg|jpeg|png|gif|bmp|webp|svg)$/i;
-    const suspectedNonTextPatterns =
-      /viewcontent|download|serveFile|\.cgi|login|signin|signup|register|cart|checkout|search\?/i;
+    const suspectedNonTextPatterns = /viewcontent|download|serveFile|\.cgi/i;
 
-    // Track success and failure metrics
-    let successfulUrls = 0;
-    let failedUrls = 0;
-    const failureReasons = new Map();
-
-    const urlFetchPromises = response.data.items
-      .filter((item) => {
-        if (excludedPatterns.test(item.link)) {
-          failedUrls++;
-          failureReasons.set(item.link, "Excluded file extension");
-          return false;
-        }
-        if (suspectedNonTextPatterns.test(item.link)) {
-          failedUrls++;
-          failureReasons.set(item.link, "Suspected non-content URL");
-          return false;
-        }
-        return true;
-      })
-      .map(async (item) => {
+    for (const item of response.data.items) {
+      if (
+        !excludedPatterns.test(item.link) &&
+        !suspectedNonTextPatterns.test(item.link)
+      ) {
         try {
-          const timeoutPromise = new Promise(
-            (_, reject) =>
-              setTimeout(() => reject(new Error("URL fetch timeout")), 20000) // Increased timeout
-          );
-
-          const contentPromise = fetchContentFromUrl(item.link);
-          const content = await Promise.race([contentPromise, timeoutPromise]);
+          const content = await fetchContentFromUrl(item.link);
 
           if (content && content.length > 100) {
-            successfulUrls++;
-            return {
-              title: item.title,
-              link: item.link,
-              content: content,
-            };
-          } else {
-            failedUrls++;
-            failureReasons.set(item.link, "No valid content extracted");
-            return null;
+            context += `Title: ${item.title}\nSOURCE: ${item.link}\nContent: ${content}\n\n`;
+
+            if (context.length >= maxChars) {
+              context = context.slice(0, maxChars);
+              break;
+            }
           }
         } catch (fetchError) {
-          failedUrls++;
-          failureReasons.set(item.link, fetchError.message);
           logger.error(
-            {
-              url: item.link,
-              error: fetchError,
-              query,
-            },
-            "Error or timeout fetching content"
+            { url: item.link, error: fetchError },
+            "Error fetching content"
           );
-          return null;
+          // Continue to the next item
         }
-      });
-
-    const results = await Promise.all(urlFetchPromises);
-
-    // Log metrics for this query
-    logger.info(
-      {
-        query,
-        totalUrls: response.data.items.length,
-        successfulUrls,
-        failedUrls,
-        failureReasons: Object.fromEntries(failureReasons),
-      },
-      "Query processing metrics"
-    );
-
-    // Filter out null results and build context
-    results.filter(Boolean).some((result) => {
-      const newContent = `Title: ${result.title}\nSOURCE: ${result.link}\nContent: ${result.content}\n\n`;
-
-      if (context.length + newContent.length <= maxChars) {
-        context += newContent;
-        return false;
       }
-      return true;
-    });
-
-    if (context.length === 0) {
-      logger.warn({ query }, "No content extracted for query");
     }
 
     return context;
   } catch (error) {
-    logger.error({ error, query }, "Error fetching data from Google");
+    logger.error({ error }, "Error fetching data from Google");
     return "";
   }
 }
@@ -223,129 +163,29 @@ const extractTextFromHTML = (html, url) => {
 };
 
 async function fetchContentFromUrl(url) {
-  const retryableStatusCodes = [429, 503, 502, 504];
-  const maxRetries = 2;
-  let attempt = 0;
+  try {
+    const response = await optimizedGotScraping.get(url, {
+      responseType: "text",
+      throwHttpErrors: false,
+    });
 
-  while (attempt <= maxRetries) {
-    try {
-      // Add common browser headers to improve success rate
-      const response = await optimizedGotScraping.get(url, {
-        responseType: "text",
-        throwHttpErrors: false,
-        headers: {
-          accept:
-            "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-          "accept-language": "en-US,en;q=0.9",
-          "cache-control": "no-cache",
-          pragma: "no-cache",
-        },
-        timeout: {
-          request: 15000, // 15 seconds timeout
-          response: 15000,
-        },
-      });
-
-      // Log the response status and content type
-      logger.info(
-        {
-          url,
-          statusCode: response.statusCode,
-          contentType: response.headers["content-type"],
-          attempt: attempt + 1,
-        },
-        "URL fetch attempt"
-      );
-
-      if (!response.ok) {
-        if (
-          retryableStatusCodes.includes(response.statusCode) &&
-          attempt < maxRetries
-        ) {
-          attempt++;
-          const delay = Math.pow(2, attempt) * 1000; // Exponential backoff
-          await new Promise((resolve) => setTimeout(resolve, delay));
-          continue;
-        }
-
-        logger.error(
-          {
-            url,
-            statusCode: response.statusCode,
-            contentType: response.headers["content-type"],
-            attempt: attempt + 1,
-          },
-          "Failed to fetch URL"
-        );
-        return "";
-      }
-
-      const contentType = response.headers["content-type"] || "";
-
-      // Skip if content type is not HTML or text
-      if (!contentType.includes("html") && !contentType.includes("text")) {
-        logger.warn(
-          { url, contentType },
-          "Skipping non-HTML/text content type"
-        );
-        return "";
-      }
-
-      const body = response.body;
-
-      // Simple check for valid HTML content
-      if (!body.includes("<") || !body.includes(">")) {
-        logger.warn(
-          { url, bodyLength: body.length },
-          "Content doesn't appear to be valid HTML"
-        );
-        return "";
-      }
-
-      const extracted = extractTextFromHTML(body, url);
-
-      // Log success metrics
-      logger.info(
-        {
-          url,
-          contentLength: extracted.markdown.length,
-          attempt: attempt + 1,
-        },
-        "Successfully extracted content"
-      );
-
-      return extracted.markdown;
-    } catch (error) {
+    if (!response.ok) {
       logger.error(
-        {
-          url,
-          error: error.message,
-          code: error.code,
-          attempt: attempt + 1,
-          stack: error.stack,
-        },
-        "Error during content fetch"
+        { url, statusCode: response.statusCode },
+        "HTTP error when fetching content"
       );
-
-      // Retry on common network errors
-      if (
-        attempt < maxRetries &&
-        (error.code === "ECONNRESET" ||
-          error.code === "ETIMEDOUT" ||
-          error.code === "ECONNREFUSED" ||
-          error.name === "TimeoutError")
-      ) {
-        attempt++;
-        const delay = Math.pow(2, attempt) * 1000;
-        await new Promise((resolve) => setTimeout(resolve, delay));
-        continue;
-      }
-
       return "";
     }
-  }
 
-  return "";
+    const body = response.body;
+    return extractTextFromHTML(body, url).markdown;
+  } catch (error) {
+    logger.error(
+      { url, error: error.message, stack: error.stack },
+      "Error fetching content"
+    );
+    return "";
+  }
 }
 
 // Example endpoint
@@ -419,12 +259,7 @@ app.post("/query", async (req, res) => {
     let contextData = "";
     const charsPerQuery = Math.floor(maxTotalChars / queries.length);
 
-    // Set a timeout for the entire operation
-    const timeoutPromise = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error("Operation timeout")), 60000)
-    );
-
-    const queryPromises = queries.map(async (query) => {
+    for (const query of queries) {
       logger.info({ query }, "Fetching data for query");
       const queryContext = await fetchDataFromGoogle(
         query,
@@ -432,23 +267,7 @@ app.post("/query", async (req, res) => {
         googleApiKey,
         googleSearchEngineId
       );
-      return { query, queryContext };
-    });
-
-    try {
-      const results = await Promise.race([
-        Promise.all(queryPromises),
-        timeoutPromise,
-      ]);
-
-      results.forEach(({ query, queryContext }) => {
-        contextData += `**${query}:**\n${queryContext}\n-------------------------------------------------------------------------------\n\n\n`;
-      });
-    } catch (timeoutError) {
-      logger.warn(
-        { error: timeoutError },
-        "Operation timed out, returning partial results"
-      );
+      contextData += `**${query}:**\n${queryContext}\n-------------------------------------------------------------------------------\n\n\n`;
     }
 
     contextData = contextData.slice(0, maxTotalChars);
