@@ -166,8 +166,10 @@ async function fetchDataFromGoogle(
 }
 
 const extractTextFromHTML = (html, url) => {
-  // Create a JSDOM instance to manipulate the HTML
-  const dom = new JSDOM(html);
+  // Create a JSDOM instance with the base URL
+  const dom = new JSDOM(html, {
+    url: url, // This sets the base URL for relative URL resolution
+  });
   const document = dom.window.document;
 
   // Remove unnecessary elements
@@ -183,7 +185,7 @@ const extractTextFromHTML = (html, url) => {
   // Extract the content
   const content = document.documentElement.outerHTML;
 
-  // Convert the HTML to Markdown
+  // Convert the HTML to Markdown with absolute URLs
   const markdown = turndownService.turndown(content);
 
   // Replace multiple spaces and newlines with a single space
@@ -197,7 +199,7 @@ const extractTextFromHTML = (html, url) => {
   const cleanWordsArray = removeStopwords(wordsArray, englishStopwords);
   cleanedMarkdown = cleanWordsArray.join(" ");
 
-  // Extract URLs
+  // Extract URLs (these will already be absolute thanks to getHrefs)
   const baseUrl = new URL(url).origin;
   const hrefs = getHrefs(html, { baseUrl });
   const urls = hrefs.filter((href) => {
