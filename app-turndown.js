@@ -36,27 +36,6 @@ turndownService.remove([
   "[aria-hidden=true]",
 ]);
 
-// Add custom rule for handling links with absolute URLs
-turndownService.addRule("absoluteLinks", {
-  filter: "a",
-  replacement: function (content, node, options) {
-    let href = node.getAttribute("href") || "";
-    try {
-      // Get the base URL from the extractTextFromHTML function's url parameter
-      const baseUrl = this.baseUrl; // This will be set when processing
-
-      // Convert relative URL to absolute
-      if (href && !href.startsWith("http") && !href.startsWith("mailto:")) {
-        href = new URL(href, baseUrl).href;
-      }
-
-      return href ? `[${content}](${href})` : content;
-    } catch (e) {
-      return content;
-    }
-  },
-});
-
 const excludedExtensions =
   /\.(js|css|png|jpe?g|gif|wmv|mp3|mp4|wav|pdf|docx?|xls|zip|rar|exe|dll|bin|pptx?|potx?|wmf|rtf|webp|webm)$/i;
 
@@ -169,9 +148,6 @@ const extractTextFromHTML = (html, url) => {
 
   // Extract the content
   const content = document.documentElement.outerHTML;
-
-  // Set the base URL for the turndown service
-  turndownService.baseUrl = url;
 
   // Convert the HTML to Markdown
   const markdown = turndownService.turndown(content);
