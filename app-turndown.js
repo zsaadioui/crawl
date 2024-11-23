@@ -36,36 +36,23 @@ turndownService.remove([
   "[aria-hidden=true]",
 ]);
 
-// Add custom rules to handle URLs
-turndownService.addRule("absoluteUrls", {
-  filter: ["a", "img"],
+// Add custom rule for handling links with absolute URLs
+turndownService.addRule("absoluteLinks", {
+  filter: "a",
   replacement: function (content, node, options) {
-    // Get the current base URL from the node's ownerDocument
-    const baseUrl = node.ownerDocument._baseURL;
+    let href = node.getAttribute("href") || "";
+    try {
+      // Get the base URL from the extractTextFromHTML function's url parameter
+      const baseUrl = this.baseUrl; // This will be set when processing
 
-    if (node.nodeName.toLowerCase() === "a") {
-      const href = node.getAttribute("href");
-      if (!href) return content;
-
-      try {
-        // Convert relative URL to absolute
-        const absoluteUrl = new URL(href, baseUrl).href;
-        return `[${content}](${absoluteUrl})`;
-      } catch (e) {
-        return content;
+      // Convert relative URL to absolute
+      if (href && !href.startsWith("http") && !href.startsWith("mailto:")) {
+        href = new URL(href, baseUrl).href;
       }
-    } else if (node.nodeName.toLowerCase() === "img") {
-      const src = node.getAttribute("src");
-      const alt = node.getAttribute("alt") || "";
-      if (!src) return "";
 
-      try {
-        // Convert relative URL to absolute
-        const absoluteUrl = new URL(src, baseUrl).href;
-        return `![${alt}](${absoluteUrl})`;
-      } catch (e) {
-        return "";
-      }
+      return href ? `[${content}](${href})` : content;
+    } catch (e) {
+      return content;
     }
   },
 });
@@ -166,10 +153,8 @@ async function fetchDataFromGoogle(
 }
 
 const extractTextFromHTML = (html, url) => {
-  // Create a JSDOM instance with the base URL
-  const dom = new JSDOM(html, {
-    url: url, // This sets the base URL for relative URL resolution
-  });
+  // Create a JSDOM instance to manipulate the HTML
+  const dom = new JSDOM(html);
   const document = dom.window.document;
 
   // Remove unnecessary elements
@@ -185,7 +170,10 @@ const extractTextFromHTML = (html, url) => {
   // Extract the content
   const content = document.documentElement.outerHTML;
 
-  // Convert the HTML to Markdown with absolute URLs
+  // Set the base URL for the turndown service
+  turndownService.baseUrl = url;
+
+  // Convert the HTML to Markdown
   const markdown = turndownService.turndown(content);
 
   // Replace multiple spaces and newlines with a single space
@@ -199,7 +187,7 @@ const extractTextFromHTML = (html, url) => {
   const cleanWordsArray = removeStopwords(wordsArray, englishStopwords);
   cleanedMarkdown = cleanWordsArray.join(" ");
 
-  // Extract URLs (these will already be absolute thanks to getHrefs)
+  // Extract URLs
   const baseUrl = new URL(url).origin;
   const hrefs = getHrefs(html, { baseUrl });
   const urls = hrefs.filter((href) => {
