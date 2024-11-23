@@ -36,6 +36,40 @@ turndownService.remove([
   "[aria-hidden=true]",
 ]);
 
+// Add custom rules to handle URLs
+turndownService.addRule("absoluteUrls", {
+  filter: ["a", "img"],
+  replacement: function (content, node, options) {
+    // Get the current base URL from the node's ownerDocument
+    const baseUrl = node.ownerDocument._baseURL;
+
+    if (node.nodeName.toLowerCase() === "a") {
+      const href = node.getAttribute("href");
+      if (!href) return content;
+
+      try {
+        // Convert relative URL to absolute
+        const absoluteUrl = new URL(href, baseUrl).href;
+        return `[${content}](${absoluteUrl})`;
+      } catch (e) {
+        return content;
+      }
+    } else if (node.nodeName.toLowerCase() === "img") {
+      const src = node.getAttribute("src");
+      const alt = node.getAttribute("alt") || "";
+      if (!src) return "";
+
+      try {
+        // Convert relative URL to absolute
+        const absoluteUrl = new URL(src, baseUrl).href;
+        return `![${alt}](${absoluteUrl})`;
+      } catch (e) {
+        return "";
+      }
+    }
+  },
+});
+
 const excludedExtensions =
   /\.(js|css|png|jpe?g|gif|wmv|mp3|mp4|wav|pdf|docx?|xls|zip|rar|exe|dll|bin|pptx?|potx?|wmf|rtf|webp|webm)$/i;
 
