@@ -147,7 +147,20 @@ const extractTextFromHTML = (html, url) => {
   elementsToRemove.forEach((el) => el.remove());
 
   // Extract the content
-  const content = document.documentElement.outerHTML;
+  let content = document.documentElement.outerHTML;
+
+  // Convert relative URLs to absolute URLs
+  const absolutify = (str, baseUrl) => {
+    const rx =
+      /((href|src|codebase|cite|background|cite|action|profile|formaction|icon|manifest|archive)=["'])(([.]+\/)|(?:\/)|(?=#))(?!\/)/g;
+    return str.replace(rx, "$1" + baseUrl + "/$4");
+  };
+
+  // Get the base URL without trailing slash
+  const baseUrl = new URL(url).origin.replace(/\/$/, "");
+
+  // Convert all relative paths to absolute
+  content = absolutify(content, baseUrl);
 
   // Convert the HTML to Markdown
   const markdown = turndownService.turndown(content);
@@ -163,9 +176,8 @@ const extractTextFromHTML = (html, url) => {
   const cleanWordsArray = removeStopwords(wordsArray, englishStopwords);
   cleanedMarkdown = cleanWordsArray.join(" ");
 
-  // Extract URLs
-  const baseUrl = new URL(url).origin;
-  const hrefs = getHrefs(html, { baseUrl });
+  // Extract URLs (now they should all be absolute)
+  const hrefs = getHrefs(content, { baseUrl });
   const urls = hrefs.filter((href) => {
     try {
       const parsedUrl = new URL(href, url);
